@@ -535,11 +535,11 @@ def tendencia_asesor(df2_asesor):
 
 
 # ─── 7. Resumen de comentarios con PLN (sumy) ────────────────────────────────
-def resumen_comentarios(textos_serie, n_oraciones=5):
+def resumen_comentarios(df_asesor, n_oraciones=5):
     """
-    Recibe una Serie de pandas con textos libres.
+    Recibe un DataFrame con columnas ['Interaccion', 'Comentarios'].
     Usa sumy (LSA) para extraer las oraciones mas representativas.
-    Devuelve una lista de strings con el resumen.
+    Devuelve una lista de tuplas (oracion, [lista_de_interacciones_fuente]).
     """
     from sumy.parsers.plaintext import PlaintextParser
     from sumy.nlp.tokenizers import Tokenizer
@@ -547,29 +547,127 @@ def resumen_comentarios(textos_serie, n_oraciones=5):
     from sumy.nlp.stemmers import Stemmer
     from sumy.utils import get_stop_words
 
-    def normalizar(texto):
+    df_clean = df_asesor.dropna(subset=["Comentarios"]).copy()
+    df_clean["Comentarios"] = df_clean["Comentarios"].astype(str).str.strip()
+    df_clean = df_clean[df_clean["Comentarios"] != ""]
+
+    if df_clean.empty:
+        return []
+
+    rows = list(zip(df_clean["Interaccion"].astype(str), df_clean["Comentarios"].tolist()))
+
+    def sanitizar(texto):
+        """Reemplaza !? internos con coma para que sumy no los trate como fin de oración."""
         t = texto.strip()
-        if t and t[-1] not in ".!?":
+        t = t.replace("!", ",").replace("?", ",")
+        if t and t[-1] != ".":
             t += "."
         return t
 
-    texto_completo = " ".join(
-        normalizar(t) for t in textos_serie.dropna().astype(str).tolist()
-    ).strip()
-
-    if not texto_completo:
-        return []
+    texto_completo = " ".join(sanitizar(t) for _, t in rows).strip()
 
     try:
-        parser    = PlaintextParser.from_string(texto_completo, Tokenizer("spanish"))
-        stemmer   = Stemmer("spanish")
+        parser     = PlaintextParser.from_string(texto_completo, Tokenizer("spanish"))
+        stemmer    = Stemmer("spanish")
         summarizer = LsaSummarizer(stemmer)
         summarizer.stop_words = get_stop_words("spanish")
-
-        oraciones = summarizer(parser.document, n_oraciones)
-        return [str(o) for o in oraciones]
+        # Pedir el doble para tener margen al desduplicar
+        oraciones_str = [str(o) for o in summarizer(parser.document, n_oraciones * 2)]
     except Exception:
-        # Fallback: devolver primeras n oraciones si sumy falla
         import re
-        todas = re.split(r"(?<=[.!?])\s+", texto_completo)
-        return [o.strip() for o in todas[:n_oraciones] if o.strip()]
+        todas = re.split(r"(?<=[.])\s+", texto_completo)
+        oraciones_str = [o.strip() for o in todas[:n_oraciones * 2] if o.strip()]
+
+    # Rastrear de qué interacción proviene cada oración y recuperar texto original
+    # Desduplicar por texto original para evitar repetidos
+    result = []
+    textos_usados = set()
+    for oracion in oraciones_str:
+        if len(result) >= n_oraciones:
+            break
+        oracion_limpia = oracion.rstrip(".").lower()
+        fuentes = []
+        texto_original = oracion
+        for interaccion, comentario in rows:
+            if oracion_limpia in sanitizar(comentario).rstrip(".").lower() \
+               or sanitizar(comentario).rstrip(".").lower() in oracion_limpia:
+                fuentes.append(interaccion)
+                if texto_original == oracion:
+                    texto_original = comentario
+        if texto_original in textos_usados:
+            continue
+        textos_usados.add(texto_original)
+        result.append((texto_original, fuentes if fuentes else ["—"]))
+
+    return result
+
+
+# ─── 8. Comparativa entre periodos ───────────────────────────────────────────
+def comparativa_periodos(df2_actual, df2_anterior, asesor, label_actual, label_anterior, metricas):
+    """
+    Recibe los df2 filtrados por cada periodo (con columnas ya renombradas).
+    Devuelve (fig_delta_cards_data, chart_barras) donde:
+      - fig_delta_cards_data: lista de dicts con {metrica, actual, anterior, delta}
+      - chart_barras: altair chart comparando todas las métricas
+    """
+    def media_asesor(df2, asesor, metricas):
+        sub = df2[df2["Asesor"] == asesor]
+        if sub.empty:
+            return pd.Series({m: float("nan") for m in metricas})
+        return sub[metricas].mean()
+
+    vals_actual   = media_asesor(df2_actual,   asesor, metricas)
+    vals_anterior = media_asesor(df2_anterior, asesor, metricas)
+
+    # Datos para cards delta
+    delta_data = [
+        {
+            "metrica":  m,
+            "actual":   round(vals_actual[m],   1) if not pd.isna(vals_actual[m])   else None,
+            "anterior": round(vals_anterior[m], 1) if not pd.isna(vals_anterior[m]) else None,
+            "delta":    round(vals_actual[m] - vals_anterior[m], 1)
+                        if not (pd.isna(vals_actual[m]) or pd.isna(vals_anterior[m])) else None,
+        }
+        for m in metricas
+    ]
+
+    # Gráfica de barras agrupadas
+    rows = []
+    for m in metricas:
+        if not pd.isna(vals_actual[m]):
+            rows.append({"Métrica": m, "Periodo": label_actual,   "Valor": round(vals_actual[m],   1)})
+        if not pd.isna(vals_anterior[m]):
+            rows.append({"Métrica": m, "Periodo": label_anterior, "Valor": round(vals_anterior[m], 1)})
+
+    long_df = pd.DataFrame(rows)
+
+    color_scale = alt.Scale(
+        domain=[label_actual, label_anterior],
+        range=[BLUE_500, BLUE_300],
+    )
+
+    base = alt.Chart(long_df)
+
+    bars = base.mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X("Métrica:N", sort=metricas,
+                axis=alt.Axis(labelAngle=-35, labelLimit=180)),
+        xOffset=alt.XOffset("Periodo:N", sort=[label_actual, label_anterior]),
+        y=alt.Y("Valor:Q", scale=alt.Scale(domain=[0, 105]), title="Promedio",
+                axis=alt.Axis(grid=True)),
+        color=alt.Color("Periodo:N", scale=color_scale,
+                        legend=alt.Legend(title="Periodo", orient="top",
+                                          direction="horizontal", titleAnchor="middle")),
+        tooltip=[
+            alt.Tooltip("Métrica:N",  title="Métrica"),
+            alt.Tooltip("Periodo:N",  title="Periodo"),
+            alt.Tooltip("Valor:Q",    title="Promedio", format=".1f"),
+        ],
+    )
+
+    chart = (
+        bars
+        .properties(height=300)
+        .configure(**_base_config)
+    )
+
+    return delta_data, chart

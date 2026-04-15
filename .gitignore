@@ -1,0 +1,15 @@
+# Secrets — nunca subir al repositorio
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Archivos temporales de Excel
+~$*.xlsx
+
+# Entornos virtuales
+.venv/
+venv/
+env/

@@ -110,8 +110,18 @@ def set_custom_theme():
 
     .custom-divider { border: none; border-top: 1px solid var(--neutral-300); margin: 28px 0; }
 
-    div[data-baseweb="select"] { border: 2px solid var(--blue-300) !important; border-radius: var(--radius-sm) !important; }
-    div[data-baseweb="select"] > div { border: none !important; box-shadow: none !important; }
+    div[data-baseweb="input"] { background-color: var(--white) !important; border: 2px solid var(--blue-300) !important; border-radius: var(--radius-sm) !important; }
+    div[data-baseweb="input"] input { background-color: var(--white) !important; color: var(--neutral-900) !important; }
+    div[data-baseweb="input"] button { background-color: var(--white) !important; border: none !important; color: var(--neutral-600) !important; }
+    div[data-baseweb="select"] { border: 2px solid var(--blue-300) !important; border-radius: var(--radius-sm) !important; background-color: var(--white) !important; }
+    div[data-baseweb="select"] > div { border: none !important; box-shadow: none !important; background-color: var(--white) !important; }
+    div[data-baseweb="select"] span,
+    div[data-baseweb="select"] div,
+    div[data-baseweb="select"] input,
+    div[data-baseweb="select"] p { color: #0F1923 !important; font-weight: 500 !important; }
+    [role="listbox"] { background-color: #FFFFFF !important; }
+    [role="option"] { background-color: #FFFFFF !important; color: #0F1923 !important; }
+    [role="option"]:hover, [aria-selected="true"] { background-color: #EEF7FC !important; color: #002F5F !important; }
 
     .stButton > button {
         background: var(--blue-500) !important; color: var(--white) !important;
@@ -131,14 +141,21 @@ def set_custom_theme():
 def load_data():
     datos = pd.read_excel("Calificaciones.xlsx", 1)
     datos = datos[datos['Año'] < 2026]
-    df   = datos.iloc[:, [4, 8, 9, 10, 11, 12, 13, 14, 15, 16]]
-    df2  = datos.iloc[:, [4, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]]
-    # df_tiempo incluye Mes y Año para la tendencia
-    df_tiempo = datos.iloc[:, [0, 1, 2, 4, 17, 18]]  # Periodo, Mes, Año, Asesor, Puntaje, Calificación
-    df_texto  = datos.iloc[:, [4, 19]]  # Asesor, Fortalezas/Areas de oportunidad
-    return df, df2, df_tiempo, df_texto
+    # Periodo académico Ago-Jul
+    def get_periodo_acad(row):
+        if row['Mes'] >= 8:
+            return f"Ago {int(row['Año'])} – Jul {int(row['Año']) + 1}"
+        else:
+            return f"Ago {int(row['Año']) - 1} – Jul {int(row['Año'])}"
+    datos['periodo_acad'] = datos.apply(get_periodo_acad, axis=1)
+    df        = datos.iloc[:, [4, 8, 9, 10, 11, 12, 13, 14, 15, 16]]
+    df2       = datos.iloc[:, [4, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]]
+    df_tiempo = datos.iloc[:, [0, 1, 2, 4, 17, 18]]
+    df_texto  = datos.iloc[:, [4, 5, 19]]
+    periodos  = datos['periodo_acad']
+    return df, df2, df_tiempo, df_texto, periodos
 
-df, df2, df_tiempo, df_texto = load_data()
+df_raw, df2_raw, df_tiempo_raw, df_texto_raw, periodos_serie = load_data()
 
 metricas_resumidas1 = [
     "Saludo y ánimo", "Redacción", "Ortografía",
@@ -146,31 +163,50 @@ metricas_resumidas1 = [
     "Control", "Clasificación", "Documentación",
     "Resolución", "Puntaje", "Calificación"
 ]
-df2.columns = ["Asesor"] + metricas_resumidas1
-
 metricas_interes = ["Necesidad verdadera (KPI)", "Resolver (KPI)", "Resolución"]
 metricas_interes_correctas = {
     "Necesidad verdadera (KPI)": "Encontrar necesidad verdadera (KPI)",
     "Resolver (KPI)": "Resolver y accionar al momento (KPI)",
     "Resolución": "Confirmar resolución y despedida cálida",
 }
-
-asesores = df['Asesor'].unique()
-asesores_dict = {a: df[df['Asesor'] == a] for a in asesores}
-df_tiempo.columns = ["Periodo", "Mes", "Año", "Asesor", "Puntaje", "Calificación"]
-asesores_tiempo_dict = {a: df_tiempo[df_tiempo['Asesor'] == a] for a in asesores}
-
-df_texto.columns = ["Asesor", "Comentarios"]
-asesores_texto_dict = {a: df_texto[df_texto['Asesor'] == a]["Comentarios"] for a in asesores}
-
-promedio_global = df2.groupby("Asesor")["Calificación"].mean()
-promedio_global_puntaje = df2.groupby("Asesor")["Puntaje"].mean()
-
-std_df  = df2.groupby("Asesor")[metricas_resumidas1].std()
-cv_df   = std_df / df2.groupby("Asesor")[metricas_resumidas1].mean()
-amenazas = (std_df > 12) | (cv_df > 0.15)
+periodos_disponibles = sorted(periodos_serie.unique(), key=lambda p: int(p.split()[1]))
 
 set_custom_theme()
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTENTICACIÓN
+# ═══════════════════════════════════════════════════════════════════════════════
+def login_screen():
+    col_c, col_form, col_d = st.columns([1, 1.2, 1])
+    with col_form:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.image("https://atencionremota.tec.mx/sites/g/files/vgjovo2371/files/inline-images/tecservices%20color%20%281%29.png", width=200)
+        st.markdown("<h2 style='color:#002F5F; margin-top:16px;'>Acceso al Dashboard</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#4A5568; margin-bottom:24px;'>Ingresa tu contraseña para continuar.</p>", unsafe_allow_html=True)
+        password = st.text_input("Contraseña", type="password", placeholder="••••••••")
+        if st.button("Ingresar", use_container_width=True):
+            passwords = st.secrets.get("passwords", {})
+            if password == passwords.get("admin", ""):
+                st.session_state.autenticado = True
+                st.session_state.es_admin = True
+                st.session_state.asesor_login = None
+                st.rerun()
+            else:
+                match = next((nombre for nombre, pwd in passwords.items() if nombre != "admin" and password == pwd), None)
+                if match:
+                    st.session_state.autenticado = True
+                    st.session_state.es_admin = False
+                    st.session_state.asesor_login = match
+                    st.rerun()
+                else:
+                    st.error("Contraseña incorrecta.")
+
+if not st.session_state.get("autenticado", False):
+    login_screen()
+    st.stop()
+
+es_admin      = st.session_state.get("es_admin", False)
+asesor_login  = st.session_state.get("asesor_login", None)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
@@ -181,31 +217,78 @@ with st.sidebar:
     st.markdown("**Desempeño de Asesores**")
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    vista = st.radio(
-        "Navegación",
-        ["Vision General", "Por Asesor"],
-        label_visibility="collapsed",
-    )
+    if es_admin:
+        vista = st.radio(
+            "Navegación",
+            ["Vision General", "Por Asesor"],
+            label_visibility="collapsed",
+        )
+    else:
+        vista = "Por Asesor"
+        st.markdown("**Vista:** Por Asesor", unsafe_allow_html=False)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    asesor_seleccionado = None
-
     st.markdown("<br><br>", unsafe_allow_html=True)
-    #st.caption("© 2025 · Dashboard de Calidad")
+    usuario_label = "Admin" if es_admin else asesor_login
+    st.markdown(f"<p style='font-size:.8rem; color:rgba(255,255,255,.7);'>Sesión: {usuario_label}</p>", unsafe_allow_html=True)
+    if st.button("Cerrar sesión", use_container_width=True):
+        for key in ["autenticado", "es_admin", "asesor_login"]:
+            st.session_state.pop(key, None)
+        st.rerun()
 
+
+# ─── Helper: aplicar filtro de periodo ────────────────────────────────────────
+def aplicar_filtro(periodo_sel):
+    mask = periodos_serie.notna() if periodo_sel == "Histórico" else periodos_serie == periodo_sel
+    df        = df_raw[mask].copy()
+    df2       = df2_raw[mask].copy()
+    df_tiempo = df_tiempo_raw[mask].copy()
+    df_texto  = df_texto_raw[mask].copy()
+
+    df2.columns       = ["Asesor"] + metricas_resumidas1
+    df_tiempo.columns = ["Periodo", "Mes", "Año", "Asesor", "Puntaje", "Calificación"]
+    df_texto.columns  = ["Asesor", "Interaccion", "Comentarios"]
+
+    asesores             = df['Asesor'].unique()
+    asesores_dict        = {a: df[df['Asesor'] == a] for a in asesores}
+    asesores_tiempo_dict = {a: df_tiempo[df_tiempo['Asesor'] == a] for a in asesores}
+    asesores_texto_dict  = {a: df_texto[df_texto['Asesor'] == a][["Interaccion", "Comentarios"]] for a in asesores}
+
+    promedio_global         = df2.groupby("Asesor")["Calificación"].mean()
+    promedio_global_puntaje = df2.groupby("Asesor")["Puntaje"].mean()
+    std_df   = df2.groupby("Asesor")[metricas_resumidas1].std()
+    cv_df    = std_df / df2.groupby("Asesor")[metricas_resumidas1].mean()
+    amenazas = (std_df > 12) | (cv_df > 0.15)
+
+    return (df, df2, df_tiempo, df_texto, asesores, asesores_dict,
+            asesores_tiempo_dict, asesores_texto_dict,
+            promedio_global, promedio_global_puntaje, amenazas)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # VISTA GENERAL
 # ═══════════════════════════════════════════════════════════════════════════════
 if "Vision General" in vista:
 
-    st.markdown("<h1>Visión General del Equipo</h1>", unsafe_allow_html=True)
-    st.markdown(
-        "<p style='color:#4A5568; margin-top:-8px; margin-bottom:24px;'>"
-        "Resumen de desempeño de todos los asesores.</p>",
-        unsafe_allow_html=True,
-    )
+    h1, col_periodo = st.columns([3, 1])
+    with h1:
+        st.markdown("<h1>Visión General del Equipo</h1>", unsafe_allow_html=True)
+        st.markdown(
+            "<p style='color:#4A5568; margin-top:-8px; margin-bottom:24px;'>"
+            "Resumen de desempeño de todos los asesores.</p>",
+            unsafe_allow_html=True,
+        )
+    with col_periodo:
+        st.markdown("<br>", unsafe_allow_html=True)
+        periodo_sel = st.selectbox(
+            "Periodo",
+            ["Histórico"] + list(reversed(periodos_disponibles)),
+            key="periodo_general",
+        )
+
+    (df, df2, df_tiempo, df_texto, asesores, asesores_dict,
+     asesores_tiempo_dict, asesores_texto_dict,
+     promedio_global, promedio_global_puntaje, amenazas) = aplicar_filtro(periodo_sel)
 
     # ── KPI Cards ──────────────────────────────────────────────────────────────
     total_interacciones = len(df)
@@ -262,17 +345,45 @@ if "Vision General" in vista:
 # ═══════════════════════════════════════════════════════════════════════════════
 else:
     st.markdown("<h1>Desempeño por Asesor</h1>", unsafe_allow_html=True)
-    st.markdown(
-        "<p style='color:#4A5568; margin-top:-8px; margin-bottom:32px;'>"
-        "Selecciona un asesor para ver sus metricas.</p>",
-        unsafe_allow_html=True,
-    )
 
-    col_sel, _ = st.columns([1, 2])
-    with col_sel:
-        asesor = st.selectbox("Asesor", options=[""] + list(asesores), index=0)
+    # Listado completo de asesores (sin filtrar por periodo)
+    all_asesores = sorted(df_raw['Asesor'].unique())
 
-    if not asesor:
+    if es_admin:
+        col_asesor, col_periodo = st.columns([2, 1])
+        with col_asesor:
+            asesor = st.selectbox(
+                "Asesor",
+                options=[""] + all_asesores,
+                key="asesor_sel",
+            )
+        with col_periodo:
+            periodo_sel = st.selectbox(
+                "Periodo",
+                ["Histórico"] + list(reversed(periodos_disponibles)),
+                key="periodo_asesor",
+            )
+        if not asesor:
+            st.stop()
+    else:
+        asesor = asesor_login
+        periodo_sel = st.selectbox(
+            "Periodo",
+            ["Histórico"] + list(reversed(periodos_disponibles)),
+            key="periodo_asesor",
+        )
+
+    (df, df2, df_tiempo, df_texto, asesores, asesores_dict,
+     asesores_tiempo_dict, asesores_texto_dict,
+     promedio_global, promedio_global_puntaje, amenazas) = aplicar_filtro(periodo_sel)
+
+    if asesor not in asesores:
+        st.markdown(
+            f"<div style='background:#FEF9E7; border-left:4px solid #F39C12; border-radius:8px; "
+            f"padding:12px 16px; color:#7D6608; font-weight:500;'>"
+            f"No hay datos para <strong>{asesor}</strong> en el periodo <strong>{periodo_sel}</strong>.</div>",
+            unsafe_allow_html=True,
+        )
         st.stop()
 
     st.markdown("<div class='custom-divider'></div>", unsafe_allow_html=True)
@@ -341,13 +452,66 @@ else:
     if not oraciones:
         st.markdown("<p style='color:#4A5568; font-style:italic;'>Sin comentarios registrados para este asesor.</p>", unsafe_allow_html=True)
     else:
-        for i, oracion in enumerate(oraciones, 1):
+        for i, (oracion, fuentes) in enumerate(oraciones, 1):
+            fuentes_html = " ".join(
+                f"<span style='display:inline-block; font-size:.7rem; font-weight:600; "
+                f"padding:2px 8px; border-radius:99px; background:#D6EEF8; color:#0055A5; margin-right:4px;'>{f}</span>"
+                for f in fuentes
+            )
             st.markdown(f"""
-            <div style='display:flex; align-items:flex-start; gap:12px; margin-bottom:10px;'>
+            <div style='display:flex; align-items:flex-start; gap:12px; margin-bottom:14px;'>
                 <div style='min-width:24px; height:24px; border-radius:50%; background:#0071B9;
-                            color:white; font-size:.75rem; font-weight:700;
+                            color:white; font-size:.75rem; font-weight:700; flex-shrink:0;
                             display:flex; align-items:center; justify-content:center;'>{i}</div>
-                <p style='margin:0; color:#0F1923; font-size:.9rem; line-height:1.55;'>{oracion}</p>
+                <div>
+                    <p style='margin:0 0 4px 0; color:#0F1923; font-size:.9rem; line-height:1.55;'>{oracion}</p>
+                    <div>{fuentes_html}</div>
+                </div>
             </div>
             """, unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Comparativa con periodo anterior ───────────────────────────────────────
+    st.markdown("<div class='section-card'><div class='section-title'>Comparativa con Periodo Anterior</div>", unsafe_allow_html=True)
+
+    idx_actual = periodos_disponibles.index(periodo_sel) if periodo_sel != "Histórico" else -1
+
+    if periodo_sel == "Histórico" or idx_actual == 0:
+        st.markdown("<p style='color:#4A5568; font-style:italic;'>Selecciona un periodo específico (no el primero) para ver la comparativa con el anterior.</p>", unsafe_allow_html=True)
+    else:
+        periodo_anterior = periodos_disponibles[idx_actual - 1]
+        (_, df2_ant, _, _, _, _, _, _, _, _, _) = aplicar_filtro(periodo_anterior)
+
+        metricas_comp = ["Saludo y ánimo", "Redacción", "Ortografía",
+                         "Necesidad verdadera (KPI)", "Resolver (KPI)",
+                         "Control", "Clasificación", "Documentación",
+                         "Resolución", "Puntaje", "Calificación"]
+
+        delta_data, chart_comp = comparativa_periodos(
+            df2, df2_ant, asesor, periodo_sel, periodo_anterior, metricas_comp
+        )
+
+        # Cards delta para Puntaje y Calificación
+        kpi_metricas = ["Puntaje", "Calificación"]
+        cols_kpi = st.columns(2)
+        for col, item in zip(cols_kpi, [d for d in delta_data if d["metrica"] in kpi_metricas]):
+            if item["delta"] is None:
+                delta_html = "<span class='kpi-badge yellow'>Sin dato anterior</span>"
+            elif item["delta"] > 0:
+                delta_html = f"<span class='kpi-badge green'>▲ {item['delta']:+.1f}</span>"
+            elif item["delta"] < 0:
+                delta_html = f"<span class='kpi-badge red'>▼ {item['delta']:+.1f}</span>"
+            else:
+                delta_html = "<span class='kpi-badge yellow'>= Sin cambio</span>"
+            with col:
+                st.markdown(f"""<div class='kpi-card'>
+                    <div class='kpi-label'>{item['metrica']}</div>
+                    <div class='kpi-value'>{item['actual'] if item['actual'] is not None else '—'}</div>
+                    <div class='kpi-sub'>Anterior: {item['anterior'] if item['anterior'] is not None else '—'} &nbsp;·&nbsp; {periodo_anterior}</div>
+                    {delta_html}
+                </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.altair_chart(chart_comp, use_container_width=True)
+
     st.markdown("</div>", unsafe_allow_html=True)
