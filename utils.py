@@ -290,13 +290,13 @@ def crearluna(promedio):
                        facecolor=BLUE_50, edgecolor=NEUTRAL_300, linewidth=1))
 
     angulo = 180 * (min(promedio, 100) / 100)
-    ax.add_patch(Wedge((cx, cy), r, 0, angulo, width=w,
+    ax.add_patch(Wedge((cx, cy), r, 180 - angulo, 180, width=w,
                        facecolor=color, edgecolor="none", alpha=0.9))
 
     ax.add_patch(Wedge((cx, cy), r, 0, 180, width=w,
                        facecolor="none", edgecolor=NEUTRAL_300, linewidth=1.2))
 
-    needle_angle = np.radians(angulo)
+    needle_angle = np.radians(180 - angulo)
     needle_r = r - w / 2
     ax.annotate("",
         xy=(cx + needle_r * np.cos(needle_angle),

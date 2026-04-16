@@ -137,10 +137,21 @@ def set_custom_theme():
 
 
 # ─── Data ──────────────────────────────────────────────────────────────────────
+ASESORES_INACTIVOS = [
+    "Alberto Gonzalez Carballo",
+    "Angela Patricia Gonzalez Torres",
+    "Elisa Esperanza Rodriguez Sanchez",
+    "Juan Andres Aguilar Garcia",
+    "Sandra Ofelia Gómez Urbina",
+    "Sergio Armenta Sánchez",
+    "Zaira Judith Pérez Arizpe",
+]
+
 @st.cache_data
 def load_data():
     datos = pd.read_excel("Calificaciones.xlsx", 1)
     datos = datos[datos['Año'] < 2026]
+    datos = datos[~datos.iloc[:, 4].isin(ASESORES_INACTIVOS)]
     # Periodo académico Ago-Jul
     def get_periodo_acad(row):
         if row['Mes'] >= 8:
@@ -297,7 +308,7 @@ if "Vision General" in vista:
     mejor_asesor        = promedio_global.idxmax()
     mejor_cal           = promedio_global.max()
 
-    if cal_promedio >= 90:   badge_clase, badge_txt = "green",  "Excelente"
+    if cal_promedio > 89:   badge_clase, badge_txt = "green",  "Excelente"
     elif cal_promedio >= 70: badge_clase, badge_txt = "yellow", "Bueno"
     else:                    badge_clase, badge_txt = "red",    "Necesita mejorar"
 
